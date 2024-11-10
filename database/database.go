@@ -2,8 +2,10 @@ package database
 
 import (
 	"database/sql"
+	"encoding/xml"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"golang.org/x/exp/rand"
@@ -44,6 +46,7 @@ type DatabaseInterface interface {
 	setEvent() (bool, error)
 	setTrigger() error
 	OnNotificationEvent(lambda func(changes string))
+	UnMarshal() (map[string]interface{}, error)
 }
 
 var seededRand *rand.Rand = rand.New(
@@ -193,6 +196,8 @@ BEGIN
 		FOR XML PATH('row'), TYPE
 	);
 
+	
+
 	DECLARE @handle UNIQUEIDENTIFIER;
 	BEGIN DIALOG CONVERSATION @handle
 		FROM SERVICE [%s]
@@ -217,16 +222,24 @@ func (s *SqlNotificationService) OnNotificationEvent(lambda func(changes string)
 		defer close(done)
 		for {
 			var messageBody string
-			query := "WAITFOR (RECEIVE TOP(1) CONVERT(XML, message_body) AS message_body FROM [ChangeNotificationQueue]);"
-			fmt.Println("Esperando cambios...")
+			query := fmt.Sprintf("WAITFOR (RECEIVE TOP(1) CONVERT(XML, message_body) AS message_body FROM [%s]);", s.queue)
+			// fmt.Println("Esperando cambios...")
+			row := s.db.QueryRow(query) //.Scan(&messageBody)
 
-			error := s.db.QueryRow(query).Scan(&messageBody)
-			if error != nil && error != sql.ErrNoRows {
-				log.Println("Error recibiendo el mensaje:", error)
+			if row != nil {
+				if err := row.Scan(&messageBody); err != nil {
+					if err == sql.ErrNoRows {
+						fmt.Println("No se han recibido cambios.")
+					}
+				}
 			}
 
+			// if error != nil && error != sql.ErrNoRows {
+			// 	log.Println("Error recibiendo el mensaje:", error)
+			// }
+
 			if messageBody != "" {
-				fmt.Println("Mensaje recibido:", messageBody)
+				// fmt.Println("Mensaje recibido:", messageBody)
 				lambda(messageBody)
 			}
 			time.Sleep(5 * time.Second) // Espera antes de la siguiente consulta
@@ -262,4 +275,59 @@ func (s *SqlNotificationService) removeTriggers() {
 			log.Fatal(err)
 		}
 	}
+}
+
+func (s *SqlNotificationService) UnMarshal(xmlString string) (map[string]interface{}, error) {
+	decoder := xml.NewDecoder(strings.NewReader(xmlString))
+	var result map[string]interface{}
+	stack := []map[string]interface{}{}
+
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			return nil, err
+		}
+
+		switch t := token.(type) {
+		case xml.StartElement:
+			element := make(map[string]interface{})
+			element["_tag"] = t.Name.Local
+			for _, attr := range t.Attr {
+				element["_"+attr.Name.Local] = attr.Value
+			}
+			if len(stack) > 0 {
+				current := stack[len(stack)-1]
+				tag := t.Name.Local
+				if _, ok := current[tag]; ok {
+					if list, ok := current[tag].([]interface{}); ok {
+						current[tag] = append(list, element)
+					} else {
+						current[tag] = []interface{}{current[tag], element}
+					}
+				} else {
+					current[tag] = element
+				}
+			} else {
+				result = element
+			}
+			stack = append(stack, element)
+		case xml.EndElement:
+			stack = stack[:len(stack)-1]
+		case xml.CharData:
+			content := strings.TrimSpace(string(t))
+			if len(content) > 0 && len(stack) > 0 {
+				current := stack[len(stack)-1]
+				if _, ok := current["_content"]; ok {
+					current["_content"] = current["_content"].(string) + " " + content
+				} else {
+					current["_content"] = content
+				}
+			}
+		}
+	}
+
+	return result, nil
 }
