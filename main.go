@@ -63,7 +63,7 @@ func main() {
 		// ServiceName: "ChangeInventoryService",
 		// EventName:   "ChangeInventory",
 	})
-	ns.Close()
+	go ns.Close()
 
 	// Start the notification service
 	ns.OnNotificationEvent(func(changes database.RowStruct) {
