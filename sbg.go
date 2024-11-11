@@ -1,4 +1,5 @@
-package database
+// Package main provides a service for SQL Server table change notifications.
+package main
 
 import (
 	"database/sql"
@@ -13,22 +14,25 @@ import (
 	"syscall"
 	"time"
 
-	"githun.com/d34ckgler/sbg/util"
+	"github.com/d34ckgler/sbg/util"
 	"golang.org/x/exp/rand"
 )
 
 const charset = "abcdefghijklmnopqrstuvwxyz" +
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
+// JsonResult holds the row structure for JSON serialization.
 type JsonResult struct {
 	Row RowStruct `json:"row"`
 }
 
+// RowStruct represents old and new values of a database row.
 type RowStruct struct {
 	OldValues map[string]interface{} `json:"OldValues"`
 	NewValues map[string]interface{} `json:"NewValues"`
 }
 
+// SqlNotificationService manages SQL Server notifications.
 type SqlNotificationService struct {
 	db          *sql.DB
 	schema      string
@@ -41,16 +45,13 @@ type SqlNotificationService struct {
 	triggerName string
 }
 
+// SettingNotification holds settings for database notifications.
 type SettingNotification struct {
 	Schema    string
 	TableName string
-	// Queue       string
-	// MessageType string
-	// Contract    string
-	// ServiceName string
-	// EventName   string
 }
 
+// DatabaseInterface defines methods for database notification operations.
 type DatabaseInterface interface {
 	SetSetting(db *sql.DB, settings SettingNotification)
 	cleanup() error
@@ -63,13 +64,13 @@ type DatabaseInterface interface {
 	OnNotificationEvent(lambda func(v interface{}))
 	UnMarshal() (map[string]interface{}, error)
 	Scan(r interface{}, v interface{})
-	// createSignalNotification()
 	Close()
 }
 
 var seededRand *rand.Rand = rand.New(
 	rand.NewSource(uint64(time.Now().UnixNano())))
 
+// StringWithCharset generates a random string of a given length using a specified charset.
 func StringWithCharset(length int, charset string) string {
 	b := make([]byte, length)
 	for i := range b {
@@ -78,63 +79,51 @@ func StringWithCharset(length int, charset string) string {
 	return string(b)
 }
 
+// String generates a random string of a given length using a default charset.
 func String(length int) string {
 	return StringWithCharset(length, charset)
 }
 
+// SetSetting configures the notification service with database settings.
 func (s *SqlNotificationService) SetSetting(db *sql.DB, settings SettingNotification) {
-	// Set database connection
 	s.db = db
-
-	// Define table name for watch notification
 	s.schema = settings.Schema
 	s.tableName = settings.TableName
-	// s.queue = settings.Queue
-	// s.messageType = settings.MessageType
-	// s.contract = settings.Contract
-	// s.serviceName = settings.ServiceName
-	// s.eventName = settings.EventName
-
 	s.queue = "Change" + capitalize(s.tableName) + "Queue"
 	s.messageType = "OnUpdate" + capitalize(s.tableName)
 	s.contract = capitalize(s.tableName) + "ProcessingContract"
 	s.serviceName = "Change" + capitalize(s.tableName) + "Service"
 	s.eventName = "Change" + capitalize(s.tableName)
-	s.triggerName = ("tr_sbg_" + capitalize(s.tableName))
+	s.triggerName = "tr_sbg_" + capitalize(s.tableName)
 
 	if err := s.cleanup(); err != nil {
-		log.Fatal("Se ha generado un error al limpiar la base de datos:", err)
+		log.Fatal("Error cleaning up the database:", err)
 	}
 
-	// Create queue, message type, contract and service
 	if _, err := s.SetQueue(); err != nil {
-		log.Fatal("Se ha generado un error al crear la cola:", err)
+		log.Fatal("Error creating queue:", err)
 	}
 	if _, err := s.SetMessageType(); err != nil {
-		log.Fatal("Se ha generado un error al crear el mensaje:", err)
+		log.Fatal("Error creating message type:", err)
 	}
 	if _, err := s.SetContract(); err != nil {
-		log.Fatal("Se ha generado un error al crear el contrato:", err)
+		log.Fatal("Error creating contract:", err)
 	}
 	if _, err := s.SetService(); err != nil {
-		log.Fatal("Se ha generado un error al crear el servicio:", err)
+		log.Fatal("Error creating service:", err)
 	}
 	if _, err := s.SetEvent(); err != nil {
-		log.Fatal("Se ha generado un error al crear el evento:", err)
+		log.Fatal("Error creating event:", err)
 	}
 	if err := s.setTrigger(); err != nil {
-		log.Fatal("Se ha generado un error al crear el desencadenador:", err)
+		log.Fatal("Error creating trigger:", err)
 	}
 }
 
-// cleanup is used to clean up the database after a service has been stopped.
-// It is called automatically when the service is stopped.
-// It will drop the service, contract, message type and queue.
+// cleanup removes database artifacts after stopping the service.
 func (s *SqlNotificationService) cleanup() error {
-	// Remove triggers
 	s.removeTriggers()
 
-	// Drop objects
 	queries := fmt.Sprintf(`
 		IF EXISTS (SELECT * FROM sys.event_notifications WHERE name = '%s') DROP EVENT NOTIFICATION %s ON QUEUE %s;
 		IF EXISTS (SELECT * FROM sys.services WHERE name = '%s') DROP SERVICE %s;
@@ -156,55 +145,42 @@ func (s *SqlNotificationService) cleanup() error {
 	)
 
 	_, err := s.db.Exec(queries)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
+// SetQueue creates a SQL Server queue for notifications.
 func (s *SqlNotificationService) SetQueue() (bool, error) {
 	_, err := s.db.Exec(fmt.Sprintf("CREATE QUEUE [%s];", s.queue))
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return err == nil, err
 }
 
+// SetMessageType creates a message type for SQL Server service broker.
 func (s *SqlNotificationService) SetMessageType() (bool, error) {
 	_, err := s.db.Exec(fmt.Sprintf("CREATE MESSAGE TYPE [%s] VALIDATION = NONE;", s.messageType))
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return err == nil, err
 }
 
+// SetContract creates a contract for SQL Server service broker.
 func (s *SqlNotificationService) SetContract() (bool, error) {
 	_, err := s.db.Exec(fmt.Sprintf(`CREATE CONTRACT [%s] (
 	[%s] SENT BY INITIATOR
 	);`, s.contract, s.messageType))
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return err == nil, err
 }
 
+// SetService creates a service for SQL Server service broker.
 func (s *SqlNotificationService) SetService() (bool, error) {
 	_, err := s.db.Exec(fmt.Sprintf("CREATE SERVICE [%s] ON QUEUE [%s] ([%s]);", s.serviceName, s.queue, s.contract))
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return err == nil, err
 }
 
+// SetEvent creates an event notification in SQL Server.
 func (s *SqlNotificationService) SetEvent() (bool, error) {
 	_, err := s.db.Exec(fmt.Sprintf("CREATE EVENT NOTIFICATION %s ON QUEUE [%s] FOR QUEUE_ACTIVATION TO SERVICE '%s','current database';", s.eventName, s.queue, s.serviceName))
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return err == nil, err
 }
 
+// setTrigger creates a SQL Server trigger for change notifications.
 func (s *SqlNotificationService) setTrigger() error {
 	_, err := s.db.Exec(fmt.Sprintf(`
 CREATE TRIGGER [%s].[%s]
@@ -220,8 +196,6 @@ BEGIN
 		FOR XML PATH('row'), TYPE
 	);
 
-	
-
 	DECLARE @handle UNIQUEIDENTIFIER;
 	BEGIN DIALOG CONVERSATION @handle
 		FROM SERVICE [%s]
@@ -233,12 +207,10 @@ BEGIN
 		MESSAGE TYPE [%s] (@message);
 	END CONVERSATION @handle;
 END;`, s.schema, s.triggerName, s.schema, s.tableName, s.serviceName, s.serviceName, s.contract, s.messageType))
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
+// OnNotificationEvent processes incoming change notifications.
 func (s *SqlNotificationService) OnNotificationEvent(lambda func(v RowStruct)) {
 	done := make(chan struct{})
 
@@ -246,21 +218,15 @@ func (s *SqlNotificationService) OnNotificationEvent(lambda func(v RowStruct)) {
 		defer close(done)
 		for {
 			var messageBody string
-			query := fmt.Sprintf("WAITFOR (RECEIVE TOP(1) CONVERT(XML, message_body) AS message_body FROM [%s]), TIMEOUT 5000;", s.queue)
-			// fmt.Println("Esperando cambios...")
-			row := s.db.QueryRow(query) //.Scan(&messageBody)
+			query := fmt.Sprintf("WAITFOR (RECEIVE TOP(1) CONVERT(XML, message_body) AS message_body FROM [%s]), TIMEOUT 1000;", s.queue)
+			row := s.db.QueryRow(query)
 
 			if row != nil {
-				if err := row.Scan(&messageBody); err != nil {
-					if err == sql.ErrNoRows {
-						// fmt.Println("No se han recibido cambios.")
-					}
+				if err := row.Scan(&messageBody); err != nil && err != sql.ErrNoRows {
+					// Ignore errors
+					// log.Println("Error receiving message:", err)
 				}
 			}
-
-			// if error != nil && error != sql.ErrNoRows {
-			// 	log.Println("Error recibiendo el mensaje:", error)
-			// }
 
 			if messageBody != "" {
 				var resultStruct JsonResult
@@ -272,23 +238,23 @@ func (s *SqlNotificationService) OnNotificationEvent(lambda func(v RowStruct)) {
 
 				lambda(resultStruct.Row)
 			}
-			time.Sleep(1 * time.Second) // Espera antes de la siguiente consulta
+			time.Sleep(1 * time.Second)
 		}
 	}()
 
 	<-done
 }
 
+// removeTriggers removes SQL Server triggers for the specified table.
 func (s *SqlNotificationService) removeTriggers() {
-
-	queryText := fmt.Sprintf(`select
-	t.name as table_name,
-	tr.name as trigger_name
-	from sys.triggers as tr
-	join sys.tables t 
-		on tr.parent_id = t.object_id
-	where t.name = '%s'
-	and tr.name like '%s'`, s.tableName, "tr_%sbg_%")
+	queryText := fmt.Sprintf(`SELECT
+	t.name AS table_name,
+	tr.name AS trigger_name
+	FROM sys.triggers AS tr
+	JOIN sys.tables t 
+		ON tr.parent_id = t.object_id
+	WHERE t.name = '%s'
+	AND tr.name LIKE '%s'`, s.tableName, "tr_%sbg_%")
 
 	result, err := s.db.Query(queryText)
 	if err != nil {
@@ -307,6 +273,7 @@ func (s *SqlNotificationService) removeTriggers() {
 	}
 }
 
+// Scan maps data from a map to a struct using reflection.
 func (s *SqlNotificationService) Scan(r interface{}, v interface{}) {
 	t := reflect.ValueOf(r)
 	rV := reflect.TypeOf(v)
@@ -314,13 +281,9 @@ func (s *SqlNotificationService) Scan(r interface{}, v interface{}) {
 	keys := t.MapKeys()
 	validFieldCount := 0
 	for _, k := range keys {
-		// result := t.MapIndex(k)
-
 		if rV.Kind() == reflect.Ptr {
 			for ind := 0; ind < rV.Elem().NumField(); ind++ {
-				// Asigna el valor de r a v
 				field := rV.Elem().Field(ind)
-
 				tag := field.Tag.Get("json")
 
 				if tag == k.String() {
@@ -356,6 +319,7 @@ func (s *SqlNotificationService) Scan(r interface{}, v interface{}) {
 	}
 }
 
+// Close performs cleanup when the service is stopped.
 func (s *SqlNotificationService) Close() {
 	go func() {
 		sigs := make(chan os.Signal, 1)
@@ -369,6 +333,7 @@ func (s *SqlNotificationService) Close() {
 	}()
 }
 
+// capitalize capitalizes the first letter of a string.
 func capitalize(s string) string {
 	if len(s) == 0 {
 		return ""
