@@ -1,4 +1,4 @@
-module github.com/dortizrv/sbg
+module github.com/dortizrv/sbgpkg
 
 go 1.23.1
 
