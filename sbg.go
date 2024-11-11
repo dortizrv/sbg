@@ -1,5 +1,5 @@
 // Package main provides a service for SQL Server table change notifications.
-package main
+package sbg
 
 import (
 	"database/sql"
@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dortizrv/sbgpkg/sbgpkg/util"
+	"github.com/dortizrv/sbg/util"
 	"golang.org/x/exp/rand"
 )
 

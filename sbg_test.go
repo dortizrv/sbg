@@ -1,6 +1,6 @@
 // sbg_test.go - Pruebas unitarias para la notificacion de cambios en una tabla de SQL Server
 
-package main
+package sbg_test
 
 import (
 	"database/sql"
@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	_ "github.com/denisenkom/go-mssqldb"
+	"github.com/dortizrv/sbg"
 )
 
 var db *sql.DB
@@ -37,16 +38,16 @@ func TestOnDetectChange(t *testing.T) {
 	fmt.Println("Connection established successfully")
 	fmt.Println("Waiting for changes...")
 
-	ns := SqlNotificationService{}
+	ns := sbg.SqlNotificationService{}
 
 	// Configura el servicio de notificaciones
-	ns.SetSetting(db, SettingNotification{
+	ns.SetSetting(db, sbg.SettingNotification{
 		Schema:    "dbo",
 		TableName: "product",
 	})
 
 	// Start the notification service
-	ns.OnNotificationEvent(func(changes RowStruct) {
+	ns.OnNotificationEvent(func(changes sbg.RowStruct) {
 		var oldValue Product
 		var product Product
 
