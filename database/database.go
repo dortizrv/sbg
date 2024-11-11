@@ -3,12 +3,14 @@ package database
 import (
 	"database/sql"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"reflect"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"githun.com/d34ckgler/sbg/util"
@@ -40,13 +42,13 @@ type SqlNotificationService struct {
 }
 
 type SettingNotification struct {
-	Schema      string
-	TableName   string
-	Queue       string
-	MessageType string
-	Contract    string
-	ServiceName string
-	EventName   string
+	Schema    string
+	TableName string
+	// Queue       string
+	// MessageType string
+	// Contract    string
+	// ServiceName string
+	// EventName   string
 }
 
 type DatabaseInterface interface {
@@ -61,6 +63,8 @@ type DatabaseInterface interface {
 	OnNotificationEvent(lambda func(v interface{}))
 	UnMarshal() (map[string]interface{}, error)
 	Scan(r interface{}, v interface{})
+	// createSignalNotification()
+	Close()
 }
 
 var seededRand *rand.Rand = rand.New(
@@ -85,12 +89,18 @@ func (s *SqlNotificationService) SetSetting(db *sql.DB, settings SettingNotifica
 	// Define table name for watch notification
 	s.schema = settings.Schema
 	s.tableName = settings.TableName
-	s.queue = settings.Queue
-	s.messageType = settings.MessageType
-	s.contract = settings.Contract
-	s.serviceName = settings.ServiceName
-	s.eventName = settings.EventName
-	s.triggerName = ("tr_sbg_" + s.tableName + "-" + String(8))
+	// s.queue = settings.Queue
+	// s.messageType = settings.MessageType
+	// s.contract = settings.Contract
+	// s.serviceName = settings.ServiceName
+	// s.eventName = settings.EventName
+
+	s.queue = "Change" + capitalize(s.tableName) + "Queue"
+	s.messageType = "OnUpdate" + capitalize(s.tableName)
+	s.contract = capitalize(s.tableName) + "ProcessingContract"
+	s.serviceName = "Change" + capitalize(s.tableName) + "Service"
+	s.eventName = "Change" + capitalize(s.tableName)
+	s.triggerName = ("tr_sbg_" + capitalize(s.tableName))
 
 	if err := s.cleanup(); err != nil {
 		log.Fatal("Se ha generado un error al limpiar la base de datos:", err)
@@ -236,14 +246,14 @@ func (s *SqlNotificationService) OnNotificationEvent(lambda func(v RowStruct)) {
 		defer close(done)
 		for {
 			var messageBody string
-			query := fmt.Sprintf("WAITFOR (RECEIVE TOP(1) CONVERT(XML, message_body) AS message_body FROM [%s]);", s.queue)
+			query := fmt.Sprintf("WAITFOR (RECEIVE TOP(1) CONVERT(XML, message_body) AS message_body FROM [%s]), TIMEOUT 5000;", s.queue)
 			// fmt.Println("Esperando cambios...")
 			row := s.db.QueryRow(query) //.Scan(&messageBody)
 
 			if row != nil {
 				if err := row.Scan(&messageBody); err != nil {
 					if err == sql.ErrNoRows {
-						fmt.Println("No se han recibido cambios.")
+						// fmt.Println("No se han recibido cambios.")
 					}
 				}
 			}
@@ -262,7 +272,7 @@ func (s *SqlNotificationService) OnNotificationEvent(lambda func(v RowStruct)) {
 
 				lambda(resultStruct.Row)
 			}
-			time.Sleep(5 * time.Second) // Espera antes de la siguiente consulta
+			time.Sleep(1 * time.Second) // Espera antes de la siguiente consulta
 		}
 	}()
 
@@ -295,61 +305,6 @@ func (s *SqlNotificationService) removeTriggers() {
 			log.Fatal(err)
 		}
 	}
-}
-
-func (s *SqlNotificationService) UnMarshal(xmlString string) (map[string]interface{}, error) {
-	decoder := xml.NewDecoder(strings.NewReader(xmlString))
-	var result map[string]interface{}
-	stack := []map[string]interface{}{}
-
-	for {
-		token, err := decoder.Token()
-		if err != nil {
-			if err.Error() == "EOF" {
-				break
-			}
-			return nil, err
-		}
-
-		switch t := token.(type) {
-		case xml.StartElement:
-			element := make(map[string]interface{})
-			element["_tag"] = t.Name.Local
-			for _, attr := range t.Attr {
-				element["_"+attr.Name.Local] = attr.Value
-			}
-			if len(stack) > 0 {
-				current := stack[len(stack)-1]
-				tag := t.Name.Local
-				if _, ok := current[tag]; ok {
-					if list, ok := current[tag].([]interface{}); ok {
-						current[tag] = append(list, element)
-					} else {
-						current[tag] = []interface{}{current[tag], element}
-					}
-				} else {
-					current[tag] = element
-				}
-			} else {
-				result = element
-			}
-			stack = append(stack, element)
-		case xml.EndElement:
-			stack = stack[:len(stack)-1]
-		case xml.CharData:
-			content := strings.TrimSpace(string(t))
-			if len(content) > 0 && len(stack) > 0 {
-				current := stack[len(stack)-1]
-				if _, ok := current["_content"]; ok {
-					current["_content"] = current["_content"].(string) + " " + content
-				} else {
-					current["_content"] = content
-				}
-			}
-		}
-	}
-
-	return result, nil
 }
 
 func (s *SqlNotificationService) Scan(r interface{}, v interface{}) {
@@ -399,4 +354,22 @@ func (s *SqlNotificationService) Scan(r interface{}, v interface{}) {
 			}
 		}
 	}
+}
+
+func (s *SqlNotificationService) Close() {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	<-sigs
+
+	s.cleanup()
+	fmt.Println("Service stopped")
+	os.Exit(0)
+}
+
+func capitalize(s string) string {
+	if len(s) == 0 {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
 }

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	_ "github.com/denisenkom/go-mssqldb"
 	"githun.com/d34ckgler/sbg/database"
@@ -18,6 +19,14 @@ type Product struct {
 	Price     float64 `json:"price"`
 }
 
+type Inventory struct {
+	InventoryID  int       `json:"inventory_id"`
+	ProductID    int       `json:"product_id"`
+	WhareHouseId int       `json:"warehouse_id"`
+	QtyEntered   float64   `json:"qty_entered"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 type JsonResult struct {
 	Row struct {
 		OldValues map[string]interface{} `json:"OldValues"`
@@ -27,12 +36,14 @@ type JsonResult struct {
 
 func main() {
 	var err error
-	connString := "server=10.1.14.16;user id=sa;password=HT3dcwb730!$;database=ecommerce;schema=dbo;encrypt=false;TrustServerCertificate=true;timeout=5s"
+	connString := "server=10.1.14.16;user id=sa;password=HT3dcwb730!$;database=ecommerce;schema=dbo;"
 	db, err = sql.Open("sqlserver", connString)
 	if err != nil {
 		log.Fatal("Error opening the database:", err)
 	}
 	defer db.Close()
+
+	fmt.Println("Runing service")
 
 	if db.Ping() != nil {
 		log.Fatal("Error ping to database server: ", err)
@@ -44,14 +55,15 @@ func main() {
 
 	// Set database configuration
 	ns.SetSetting(db, database.SettingNotification{
-		Schema:      "dbo",
-		TableName:   "product",
-		Queue:       "ChangeNotificationQueue",
-		MessageType: "OnUpdateProduct",
-		Contract:    "ProductProcessingContract",
-		ServiceName: "ChangeNotificationService",
-		EventName:   "ChangeNotification",
+		Schema:    "dbo",
+		TableName: "product",
+		// Queue:       "ChangeInventoryQueue",
+		// MessageType: "OnUpdateInventory",
+		// Contract:    "InventoryProcessingContract",
+		// ServiceName: "ChangeInventoryService",
+		// EventName:   "ChangeInventory",
 	})
+	ns.Close()
 
 	// Start the notification service
 	ns.OnNotificationEvent(func(changes database.RowStruct) {
@@ -64,8 +76,8 @@ func main() {
 		fmt.Println("OldValues:", oldValue)
 		fmt.Println("NewValues:", product)
 
-		if (oldValue.Price != product.Price) || (oldValue.Name != product.Name) {
-			fmt.Println("Price or Name changed")
-		}
+		// if (oldValue.Price != product.Price) || (oldValue.Name != product.Name) {
+		// 	fmt.Println("Price or Name changed")
+		// }
 	})
 }
