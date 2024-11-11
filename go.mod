@@ -1,4 +1,4 @@
-module github.com/d34ckgler/sbg
+module github.com/dortizrv/sbg
 
 go 1.23.1
 

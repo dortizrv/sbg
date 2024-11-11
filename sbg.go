@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/d34ckgler/sbg/util"
+	"github.com/dortizrv/sbg/util"
 	"golang.org/x/exp/rand"
 )
 
