@@ -2,17 +2,30 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"log"
+	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
+	"githun.com/d34ckgler/sbg/util"
 	"golang.org/x/exp/rand"
 )
 
 const charset = "abcdefghijklmnopqrstuvwxyz" +
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+type JsonResult struct {
+	Row RowStruct `json:"row"`
+}
+
+type RowStruct struct {
+	OldValues map[string]interface{} `json:"OldValues"`
+	NewValues map[string]interface{} `json:"NewValues"`
+}
 
 type SqlNotificationService struct {
 	db          *sql.DB
@@ -45,8 +58,9 @@ type DatabaseInterface interface {
 	setService() (bool, error)
 	setEvent() (bool, error)
 	setTrigger() error
-	OnNotificationEvent(lambda func(changes string))
+	OnNotificationEvent(lambda func(v interface{}))
 	UnMarshal() (map[string]interface{}, error)
+	Scan(r interface{}, v interface{})
 }
 
 var seededRand *rand.Rand = rand.New(
@@ -215,7 +229,7 @@ END;`, s.schema, s.triggerName, s.schema, s.tableName, s.serviceName, s.serviceN
 	return nil
 }
 
-func (s *SqlNotificationService) OnNotificationEvent(lambda func(changes string)) {
+func (s *SqlNotificationService) OnNotificationEvent(lambda func(v RowStruct)) {
 	done := make(chan struct{})
 
 	go func() {
@@ -239,8 +253,14 @@ func (s *SqlNotificationService) OnNotificationEvent(lambda func(changes string)
 			// }
 
 			if messageBody != "" {
-				// fmt.Println("Mensaje recibido:", messageBody)
-				lambda(messageBody)
+				var resultStruct JsonResult
+				jsonParsed, err := util.ReadXml(messageBody)
+				if err != nil {
+					log.Fatal(err)
+				}
+				json.Unmarshal(jsonParsed.Bytes(), &resultStruct)
+
+				lambda(resultStruct.Row)
 			}
 			time.Sleep(5 * time.Second) // Espera antes de la siguiente consulta
 		}
@@ -330,4 +350,53 @@ func (s *SqlNotificationService) UnMarshal(xmlString string) (map[string]interfa
 	}
 
 	return result, nil
+}
+
+func (s *SqlNotificationService) Scan(r interface{}, v interface{}) {
+	t := reflect.ValueOf(r)
+	rV := reflect.TypeOf(v)
+
+	keys := t.MapKeys()
+	validFieldCount := 0
+	for _, k := range keys {
+		// result := t.MapIndex(k)
+
+		if rV.Kind() == reflect.Ptr {
+			for ind := 0; ind < rV.Elem().NumField(); ind++ {
+				// Asigna el valor de r a v
+				field := rV.Elem().Field(ind)
+
+				tag := field.Tag.Get("json")
+
+				if tag == k.String() {
+					validFieldCount++
+					rValue := reflect.ValueOf(v)
+					fields := rValue.Elem().FieldByName(field.Name)
+
+					if fields.Type() == field.Type {
+						newValue := reflect.ValueOf(t.MapIndex(k).Interface())
+						newType := reflect.TypeOf(t.MapIndex(k).Interface())
+
+						if fields.Type() != newType {
+							if fields.Type().String() == "int" {
+								newValue, err := strconv.Atoi(newValue.String())
+								if err != nil {
+									log.Fatal(err)
+								}
+								fields.Set(reflect.ValueOf(newValue))
+							} else if fields.Type().String() == "float64" {
+								newValue, err := strconv.ParseFloat(newValue.String(), 64)
+								if err != nil {
+									log.Fatal(err)
+								}
+								fields.Set(reflect.ValueOf(newValue))
+							}
+						} else {
+							fields.Set(newValue)
+						}
+					}
+				}
+			}
+		}
+	}
 }
