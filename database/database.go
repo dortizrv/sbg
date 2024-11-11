@@ -357,14 +357,16 @@ func (s *SqlNotificationService) Scan(r interface{}, v interface{}) {
 }
 
 func (s *SqlNotificationService) Close() {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	<-sigs
+		<-sigs
 
-	s.cleanup()
-	fmt.Println("Service stopped")
-	os.Exit(0)
+		s.cleanup()
+		fmt.Println("Service stopped")
+		os.Exit(0)
+	}()
 }
 
 func capitalize(s string) string {
