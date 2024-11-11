@@ -340,3 +340,7 @@ func capitalize(s string) string {
 	}
 	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
 }
+
+func Sbg() *SqlNotificationService {
+	return &SqlNotificationService{}
+}

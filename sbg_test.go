@@ -38,7 +38,9 @@ func TestOnDetectChange(t *testing.T) {
 	fmt.Println("Connection established successfully")
 	fmt.Println("Waiting for changes...")
 
-	ns := sbg.SqlNotificationService{}
+	// ns := sbg.SqlNotificationService{}
+
+	ns := sbg.Sbg()
 
 	// Configura el servicio de notificaciones
 	ns.SetSetting(db, sbg.SettingNotification{
