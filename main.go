@@ -27,12 +27,18 @@ type JsonResult struct {
 
 func main() {
 	var err error
-	connString := "server=192.168.110.97;user id=sa;password=HT3dcwb730!$;database=ecommerce;schema=dbo"
+	connString := "server=10.1.14.16;user id=sa;password=HT3dcwb730!$;database=ecommerce;schema=dbo;encrypt=false;TrustServerCertificate=true;timeout=5s"
 	db, err = sql.Open("sqlserver", connString)
 	if err != nil {
 		log.Fatal("Error opening the database:", err)
 	}
 	defer db.Close()
+
+	if db.Ping() != nil {
+		log.Fatal("Error ping to database server: ", err)
+	}
+
+	fmt.Println("Connection established successfully")
 
 	ns := database.SqlNotificationService{}
 
@@ -53,9 +59,13 @@ func main() {
 		var product Product
 
 		ns.Scan(changes.OldValues, &oldValue)
-		ns.Scan(changes.OldValues, &product)
+		ns.Scan(changes.NewValues, &product)
 
 		fmt.Println("OldValues:", oldValue)
 		fmt.Println("NewValues:", product)
+
+		if (oldValue.Price != product.Price) || (oldValue.Name != product.Name) {
+			fmt.Println("Price or Name changed")
+		}
 	})
 }
