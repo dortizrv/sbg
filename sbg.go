@@ -100,19 +100,19 @@ func (s *SqlNotificationService) SetSetting(db *sql.DB, settings SettingNotifica
 		log.Fatal("Error cleaning up the database:", err)
 	}
 
-	if _, err := s.SetQueue(); err != nil {
+	if _, err := s.setQueue(); err != nil {
 		log.Fatal("Error creating queue:", err)
 	}
-	if _, err := s.SetMessageType(); err != nil {
+	if _, err := s.setMessageType(); err != nil {
 		log.Fatal("Error creating message type:", err)
 	}
-	if _, err := s.SetContract(); err != nil {
+	if _, err := s.setContract(); err != nil {
 		log.Fatal("Error creating contract:", err)
 	}
-	if _, err := s.SetService(); err != nil {
+	if _, err := s.setService(); err != nil {
 		log.Fatal("Error creating service:", err)
 	}
-	if _, err := s.SetEvent(); err != nil {
+	if _, err := s.setEvent(); err != nil {
 		log.Fatal("Error creating event:", err)
 	}
 	if err := s.setTrigger(); err != nil {
@@ -149,19 +149,19 @@ func (s *SqlNotificationService) cleanup() error {
 }
 
 // SetQueue creates a SQL Server queue for notifications.
-func (s *SqlNotificationService) SetQueue() (bool, error) {
+func (s *SqlNotificationService) setQueue() (bool, error) {
 	_, err := s.db.Exec(fmt.Sprintf("CREATE QUEUE [%s];", s.queue))
 	return err == nil, err
 }
 
 // SetMessageType creates a message type for SQL Server service broker.
-func (s *SqlNotificationService) SetMessageType() (bool, error) {
+func (s *SqlNotificationService) setMessageType() (bool, error) {
 	_, err := s.db.Exec(fmt.Sprintf("CREATE MESSAGE TYPE [%s] VALIDATION = NONE;", s.messageType))
 	return err == nil, err
 }
 
 // SetContract creates a contract for SQL Server service broker.
-func (s *SqlNotificationService) SetContract() (bool, error) {
+func (s *SqlNotificationService) setContract() (bool, error) {
 	_, err := s.db.Exec(fmt.Sprintf(`CREATE CONTRACT [%s] (
 	[%s] SENT BY INITIATOR
 	);`, s.contract, s.messageType))
@@ -169,13 +169,13 @@ func (s *SqlNotificationService) SetContract() (bool, error) {
 }
 
 // SetService creates a service for SQL Server service broker.
-func (s *SqlNotificationService) SetService() (bool, error) {
+func (s *SqlNotificationService) setService() (bool, error) {
 	_, err := s.db.Exec(fmt.Sprintf("CREATE SERVICE [%s] ON QUEUE [%s] ([%s]);", s.serviceName, s.queue, s.contract))
 	return err == nil, err
 }
 
 // SetEvent creates an event notification in SQL Server.
-func (s *SqlNotificationService) SetEvent() (bool, error) {
+func (s *SqlNotificationService) setEvent() (bool, error) {
 	_, err := s.db.Exec(fmt.Sprintf("CREATE EVENT NOTIFICATION %s ON QUEUE [%s] FOR QUEUE_ACTIVATION TO SERVICE '%s','current database';", s.eventName, s.queue, s.serviceName))
 	return err == nil, err
 }
