@@ -15,16 +15,16 @@ var db *sql.DB
 
 // Estructura para la tabla product
 type Product struct {
-	ProductID int     `json:"product_id"`
-	Sku       string  `json:"sku"`
-	Name      string  `json:"name"`
-	Price     float64 `json:"price"`
+	ProductID int     `json:"ID"`
+	Sku       string  `json:"C_Codigo"`
+	Name      string  `json:"C_Descri"`
+	Price     float64 `json:"n_Precio1"`
 }
 
 // TestOnDetectChange - Verifica que el servicio detecte cambios en la tabla product
 func TestOnDetectChange(t *testing.T) {
 	var err error
-	connString := "server=10.1.14.16;user id=sa;password=HT3dcwb730!$;database=ecommerce;schema=dbo;"
+	connString := "server=10.1.14.6\\testing;user id=dortiz;password=asdf.123;database=VAD10;schema=dbo;"
 	db, err = sql.Open("sqlserver", connString)
 	if err != nil {
 		t.Error("Error opening the database:", err)
@@ -33,10 +33,10 @@ func TestOnDetectChange(t *testing.T) {
 
 	if db.Ping() != nil {
 		t.Error("Error ping to database server: ", err)
+	} else {
+		fmt.Println("Connection established successfully")
+		fmt.Println("Waiting for changes...")
 	}
-
-	fmt.Println("Connection established successfully")
-	fmt.Println("Waiting for changes...")
 
 	// ns := sbg.SqlNotificationService{}
 
@@ -45,7 +45,7 @@ func TestOnDetectChange(t *testing.T) {
 	// Configura el servicio de notificaciones
 	ns.SetSetting(db, sbg.SettingNotification{
 		Schema:    "dbo",
-		TableName: "product",
+		TableName: "MA_PRODUCTOS",
 	})
 
 	// Start the notification service

@@ -43,6 +43,7 @@ type SqlNotificationService struct {
 	serviceName string
 	eventName   string
 	triggerName string
+	columns     string
 }
 
 // SettingNotification holds settings for database notifications.
@@ -115,6 +116,9 @@ func (s *SqlNotificationService) SetSetting(db *sql.DB, settings SettingNotifica
 	if _, err := s.setEvent(); err != nil {
 		log.Fatal("Error creating event:", err)
 	}
+	if err := s.setValidColumn(); err != nil {
+		log.Fatal("Error generating valid columns:", err)
+	}
 	if err := s.setTrigger(); err != nil {
 		log.Fatal("Error creating trigger:", err)
 	}
@@ -180,6 +184,37 @@ func (s *SqlNotificationService) setEvent() (bool, error) {
 	return err == nil, err
 }
 
+// remove Columns problematics
+func (s *SqlNotificationService) setValidColumn() error {
+	sql := fmt.Sprintf(`DECLARE @SQL NVARCHAR(MAX) = N''; 
+
+	SELECT @SQL += COLUMN_NAME + ', '  
+    FROM INFORMATION_SCHEMA.COLUMNS  
+    WHERE TABLE_NAME = '%s'  
+      AND DATA_TYPE NOT IN ('text', 'ntext', 'image');
+
+	-- Eliminar la última coma y espacio  
+    SET @SQL = LEFT(@SQL, LEN(@SQL) - 1);
+	SELECT @SQL AS columns;
+	`, s.tableName)
+
+	rows, err := s.db.Query(sql)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			return err
+		}
+		s.columns = column
+	}
+
+	return nil
+}
+
 // setTrigger creates a SQL Server trigger for change notifications.
 func (s *SqlNotificationService) setTrigger() error {
 	_, err := s.db.Exec(fmt.Sprintf(`
@@ -191,8 +226,8 @@ BEGIN
 	DECLARE @message XML;
 	SET @message = (
 		SELECT
-			(SELECT * FROM deleted FOR XML PATH('OldValues'), TYPE),
-			(SELECT * FROM inserted FOR XML PATH('NewValues'), TYPE)
+			(SELECT %s FROM deleted FOR XML PATH('OldValues'), TYPE),
+			(SELECT %s FROM inserted FOR XML PATH('NewValues'), TYPE)
 		FOR XML PATH('row'), TYPE
 	);
 
@@ -206,7 +241,7 @@ BEGIN
 	SEND ON CONVERSATION @handle
 		MESSAGE TYPE [%s] (@message);
 	END CONVERSATION @handle;
-END;`, s.schema, s.triggerName, s.schema, s.tableName, s.serviceName, s.serviceName, s.contract, s.messageType))
+END;`, s.schema, s.triggerName, s.schema, s.tableName, s.columns, s.columns, s.serviceName, s.serviceName, s.contract, s.messageType))
 	return err
 }
 
