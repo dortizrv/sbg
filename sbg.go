@@ -61,6 +61,7 @@ type DatabaseInterface interface {
 	setContract() (bool, error)
 	setService() (bool, error)
 	setEvent() (bool, error)
+	setValidColumn() error
 	setTrigger() error
 	OnNotificationEvent(lambda func(v interface{}))
 	UnMarshal() (map[string]interface{}, error)
